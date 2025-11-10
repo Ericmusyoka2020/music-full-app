@@ -1,0 +1,166 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Downloader</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding-top: 50px; background-color: #f8f9fa; }
+    .video-card { margin-bottom: 15px; cursor: pointer; }
+    .video-thumbnail { width: 120px; height: 90px; object-fit: cover; }
+    #previewArea { margin-top: 30px; display: none; }
+    #previewVideo { width: 100%; max-height: 500px; display: none; }
+    #loader { display: none; text-align: center; margin: 20px 0; }
+    /* New style for cover photo */
+    .cover-photo {
+      display: block;
+      margin: 20px auto;
+      max-width: 200px; /* adjust size as needed */
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1 class="mb-4 text-center">YouTube Downloader</h1>
+
+  <div class="input-group mb-3">
+    <input type="text" id="searchQuery" class="form-control" placeholder="Search YouTube videos">
+    <button id="searchBtn" class="btn btn-primary">Search</button>
+  </div>
+
+  <!-- Cover photo below search bar -->
+  <img src="logo.png" alt="Logo" class="cover-photo">
+
+  <div id="results" class="row"></div>
+
+  <div id="previewArea" class="card p-3">
+    <h5 id="previewTitle"></h5>
+    <div id="loader">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p>Preparing video preview...</p>
+    </div>
+    <video id="previewVideo" controls></video>
+    <div class="mt-3">
+      <a id="downloadMp4" href="#" class="btn btn-success me-2" download>Download MP4</a>
+      <a id="downloadMp3" href="#" class="btn btn-warning" download>Download MP3</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE_URL = window.location.origin;
+
+const searchBtn = document.getElementById("searchBtn");
+const searchQuery = document.getElementById("searchQuery");
+const resultsDiv = document.getElementById("results");
+
+const previewArea = document.getElementById("previewArea");
+const previewVideo = document.getElementById("previewVideo");
+const previewTitle = document.getElementById("previewTitle");
+const downloadMp4 = document.getElementById("downloadMp4");
+const downloadMp3 = document.getElementById("downloadMp3");
+const loader = document.getElementById("loader");
+
+// Track already downloaded videos
+let downloadedVideos = {};
+
+searchBtn.addEventListener("click", () => {
+    const query = searchQuery.value.trim();
+    if (!query) return alert("Please enter a search term");
+    resultsDiv.innerHTML = "<p>Loading...</p>";
+    previewArea.style.display = "none";
+
+    fetch(`${BASE_URL}/search?q=${encodeURIComponent(query)}`)
+        .then(res => res.json())
+        .then(videos => {
+            if (!videos || videos.length === 0) {
+                resultsDiv.innerHTML = "<p>No results found.</p>";
+                return;
+            }
+
+            resultsDiv.innerHTML = "";
+            videos.forEach(video => {
+                const videoId = video.id.videoId;
+                const title = video.snippet.title;
+                const thumb = video.snippet.thumbnails.default.url;
+
+                const card = document.createElement("div");
+                card.classList.add("col-md-6", "video-card");
+
+                card.innerHTML = `
+                    <div class="card">
+                        <div class="row g-0">
+                            <div class="col-4">
+                                <img src="${thumb}" class="img-fluid video-thumbnail" alt="${title}">
+                            </div>
+                            <div class="col-8">
+                                <div class="card-body">
+                                    <h6 class="card-title">${title}</h6>
+                                    <small class="text-muted">Click to download</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                card.addEventListener("click", () => {
+                    const videoUrlMp4 = `${BASE_URL}/download/mp4?id=${videoId}`;
+                    const videoUrlMp3 = `${BASE_URL}/download/mp3?id=${videoId}`;
+
+                    previewTitle.textContent = title;
+                    previewArea.style.display = "block";
+                    previewVideo.src = videoUrlMp4;
+                    previewVideo.load();
+                    previewVideo.oncanplay = () => {
+                        loader.style.display = "none";
+                        previewVideo.style.display = "block";
+                    };
+
+                    downloadMp4.onclick = (e) => {
+                        e.preventDefault();
+                        if (downloadedVideos[videoId]) {
+                            if (!confirm(`You already downloaded "${title}". Download again?`)) return;
+                        }
+                        downloadedVideos[videoId] = true;
+                        const a = document.createElement('a');
+                        a.href = videoUrlMp4;
+                        a.download = `${title}.mp4`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    };
+
+                    downloadMp3.onclick = (e) => {
+                        e.preventDefault();
+                        if (downloadedVideos[videoId]) {
+                            if (!confirm(`You already downloaded "${title}". Download again?`)) return;
+                        }
+                        downloadedVideos[videoId] = true;
+                        const a = document.createElement('a');
+                        a.href = videoUrlMp3;
+                        a.download = `${title}.mp3`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    };
+
+                    window.scrollTo({ top: previewArea.offsetTop - 20, behavior: 'smooth' });
+                });
+
+                resultsDiv.appendChild(card);
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            resultsDiv.innerHTML = "<p>Error fetching videos</p>";
+        });
+});
+</script>
+</body>
+</html>
