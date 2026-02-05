@@ -1,10 +1,11 @@
+
 {
   "name": "song",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod a+x yt-dlp"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +16,6 @@
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "got": "^14.4.7",
-    "ytdl-core": "^4.11.5"
+    "got": "^14.4.7"
   }
 }
