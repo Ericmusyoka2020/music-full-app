@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FastStream Downloader</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #0b0b0b; color: #eee; padding: 20px; }
+    .vid-card { background: #181818; border: 1px solid #333; cursor: pointer; border-radius: 10px; transition: 0.2s; }
+    .vid-card:hover { border-color: #ff0000; background: #222; }
+    #playerBox { display: none; background: #000; padding: 15px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #444; }
+    video { width: 100%; border-radius: 10px; }
+  </style>
+</head>
+<body>
+<div class="container" style="max-width: 800px;">
+  <div class="text-center mb-4">
+    <h2 class="text-danger">YouTube Instant</h2>
+    <div class="input-group">
+      <input type="text" id="in" class="form-control bg-dark text-white border-secondary" placeholder="Search...">
+      <button onclick="go()" class="btn btn-danger">Search</button>
+    </div>
+  </div>
+
+  <div id="playerBox" class="text-center">
+    <h5 id="vT" class="mb-3"></h5>
+    <video id="vP" controls autoplay></video>
+    <a id="vD" class="btn btn-success mt-3 w-100" href="#">Download Now</a>
+  </div>
+
+  <div id="res" class="row g-3"></div>
+</div>
+
+<script>
+  const API = "http://localhost:5000/api";
+  async function go() {
+    const q = document.getElementById('in').value;
+    const list = document.getElementById('res');
+    list.innerHTML = "Searching...";
+    try {
+      const r = await fetch(`${API}/search?q=${q}`);
+      const j = await r.json();
+      list.innerHTML = j.data.map(v => `
+        <div class="col-12" onclick="play('${v.id}', '${v.title.replace(/'/g,"")}')">
+          <div class="vid-card p-2 d-flex align-items-center">
+            <img src="${v.thumbnails.default.url}" style="width:100px; border-radius:5px;">
+            <div class="ms-3 text-truncate"><b>${v.title}</b><br><small class="text-muted">${v.channel}</small></div>
+          </div>
+        </div>`).join('');
+    } catch(e) { list.innerHTML = "Error connecting to server."; }
+  }
+
+  function play(id, t) {
+    const u = `${API}/download/mp4?id=${id}`;
+    document.getElementById('vT').innerText = t;
+    document.getElementById('playerBox').style.display = "block";
+    document.getElementById('vP').src = u;
+    document.getElementById('vD').href = u;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+</script>
+</body>
+</html>

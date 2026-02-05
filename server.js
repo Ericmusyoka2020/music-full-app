@@ -1,28 +1,16 @@
-
- const express = require("express");
+const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
 const compression = require("compression");
 const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
 
 const app = express();
 app.use(cors());
 app.use(compression());
+app.use(express.json());
 
-// ---------------- Serve frontend ----------------
-app.use(express.static("public")); // "public" folder contains index.html
-
-// ---------------- API keys rotation ----------------
-const API_KEYS = [
-   "AIzaSyA-l_XgaybOFDy5pmmHsLnAnvcR9Ttm5r0",
-   "AIzaSyCZQQ-PkYUuWHRSUNJ_X7pdLUGJ8bLXL-8",
-   "AIzaSyDBurYWTUdSCLeWwVXhCf4noF24-5iwyIo",
-   "AIzaSyArQ-uZSa8rPteW4DWa26qMDSdntWf7Q4o",
-   "AIzaSyAOrH48C3gBCbhYjYn5UTSm7uU3n-wENGY"
-];
+// API Keys
+const API_KEYS = ["AIzaSyA-l_XgaybOFDy5pmmHsLnAnvcR9Ttm5r0", "AIzaSyCZQQ-PkYUuWHRSUNJ_X7pdLUGJ8bLXL-8", "AIzaSyDBurYWTUdSCLeWwVXhCf4noF24-5iwyIo", "AIzaSyArQ-uZSa8rPteW4DWa26qMDSdntWf7Q4o", "AIzaSyAOrH48C3gBCbhYjYn5UTSm7uU3n-wENGY"];
 let keyIndex = 0;
 function getNextKey() {
     const key = API_KEYS[keyIndex];
@@ -30,84 +18,49 @@ function getNextKey() {
     return key;
 }
 
-// ---------------- Search endpoint ----------------
-app.get("/search", async (req, res) => {
+// Search
+app.get("/api/search", async (req, res) => {
     const query = req.query.q;
-    if (!query) return res.status(400).json({ error: "Missing query" });
-
+    if (!query) return res.status(400).json({ error: "No query" });
     try {
         const apiKey = getNextKey();
-        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=20&q=${encodeURIComponent(query)}&key=${apiKey}`;
-        const { data } = await axios.get(url);
-        res.json(data.items);
-    } catch (err) {
-        res.status(500).json({ error: "Search failed", details: err.message });
-    }
+        const { data } = await axios.get(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=${encodeURIComponent(query)}&key=${apiKey}`);
+        res.json({ status: "success", data: data.items.map(item => ({
+            id: item.id.videoId, title: item.snippet.title, thumbnails: item.snippet.thumbnails, channel: item.snippet.channelTitle
+        }))});
+    } catch (err) { res.status(500).json({ status: "error" }); }
 });
 
-// ---------------- Download MP4 ----------------
-app.get("/download/mp4", (req, res) => {
+// Download - UPDATED ARGUMENTS
+app.get("/api/download/mp4", (req, res) => {
     const videoId = req.query.id;
-    if (!videoId) return res.status(400).send("Missing video ID");
+    if (!videoId) return res.status(400).send("No ID");
 
-    const titleProcess = spawn("yt-dlp", [
-        "--get-title",
-        `https://www.youtube.com/watch?v=${videoId}`
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="video_${videoId}.mp4"`);
+
+    // We swapped --impersonate for a custom User-Agent and android client args
+    // This is much more compatible with Linux/Kali environments
+    const ytProcess = spawn("yt-dlp", [
+        "-f", "best[ext=mp4]", 
+        "--no-playlist",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--extractor-args", "youtube:player_client=android,web",
+        `https://www.youtube.com/watch?v=${videoId}`,
+        "-o", "-" 
     ]);
 
-    let title = "";
-    titleProcess.stdout.on("data", (data) => title += data.toString());
+    ytProcess.stdout.pipe(res);
 
-    titleProcess.on("close", () => {
-        title = title.trim().replace(/[\/\\?%*:|"<>]/g, "_");
-        const tempPath = path.join(os.tmpdir(), title);
-
-        const process = spawn("yt-dlp", [
-            "-f", "bestvideo+bestaudio/best",
-            "--merge-output-format", "mp4",
-            "--ffmpeg-location", "/usr/bin/ffmpeg",
-            `https://www.youtube.com/watch?v=${videoId}`,
-            "-o", `${tempPath}.%(ext)s`
-        ]);
-
-        process.on("close", () => {
-            const finalPath = `${tempPath}.mp4`;
-            res.download(finalPath, `${title}.mp4`, () => fs.unlink(finalPath, () => {}));
-        });
+    ytProcess.stderr.on("data", (data) => {
+        const msg = data.toString();
+        if (msg.includes("403")) console.error("❌ 403 Forbidden. YouTube blocked the IP.");
+        else console.log(`yt-dlp: ${msg.trim()}`);
     });
+
+    ytProcess.on("close", () => res.end());
+    req.on("close", () => ytProcess.kill());
 });
 
-// ---------------- Download MP3 ----------------
-app.get("/download/mp3", (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) return res.status(400).send("Missing video ID");
-
-    const titleProcess = spawn("yt-dlp", [
-        "--get-title",
-        `https://www.youtube.com/watch?v=${videoId}`
-    ]);
-
-    let title = "";
-    titleProcess.stdout.on("data", (data) => title += data.toString());
-
-    titleProcess.on("close", () => {
-        title = title.trim().replace(/[\/\\?%*:|"<>]/g, "_");
-        const tempPath = path.join(os.tmpdir(), title);
-
-        const process = spawn("yt-dlp", [
-            "-x", "--audio-format", "mp3",
-            "--ffmpeg-location", "/usr/bin/ffmpeg",
-            `https://www.youtube.com/watch?v=${videoId}`,
-            "-o", `${tempPath}.%(ext)s`
-        ]);
-
-        process.on("close", () => {
-            const finalPath = `${tempPath}.mp3`;
-            res.download(finalPath, `${title}.mp3`, () => fs.unlink(finalPath, () => {}));
-        });
-    });
-});
-
-// ---------------- Start server ----------------
 const PORT = 5000;
-app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
