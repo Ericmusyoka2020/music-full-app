@@ -1,9 +1,9 @@
+
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
 const compression = require("compression");
 const { spawn } = require("child_process");
-const path = require("path");
 
 const app = express();
 
@@ -12,10 +12,10 @@ app.use(cors());
 app.use(compression());
 app.use(express.json());
 
-// PORT for Render
+// Important for Render / Railway / Fly.io etc.
 const PORT = process.env.PORT || 5000;
 
-// Health check
+// Simple health check endpoint (Render requires something to respond on root)
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "ok",
@@ -24,12 +24,12 @@ app.get("/", (req, res) => {
   });
 });
 
-// Load API keys from environment
-const API_KEYS = (process.env.API_KEYS || "").split(",").filter(k => k);
+// API Keys – better to use env var in production
+// Format on Render: API_KEYS=key1,key2,key3,key4
+const API_KEYS = (process.env.API_KEYS || "AIzaSyA-l_XgaybOFDy5pmmHsLnAnvcR9Ttm5r0").split(",");
 let keyIndex = 0;
 
 function getNextKey() {
-  if (API_KEYS.length === 0) return "";
   const key = API_KEYS[keyIndex];
   keyIndex = (keyIndex + 1) % API_KEYS.length;
   return key;
@@ -38,7 +38,9 @@ function getNextKey() {
 // Search endpoint
 app.get("/api/search", async (req, res) => {
   const query = req.query.q;
-  if (!query) return res.status(400).json({ error: "Missing ?q= parameter" });
+  if (!query) {
+    return res.status(400).json({ error: "Missing query parameter ?q=" });
+  }
 
   try {
     const apiKey = getNextKey();
@@ -48,51 +50,34 @@ app.get("/api/search", async (req, res) => {
 
     res.json({
       status: "success",
-      data: data.items.map(item => ({
+      data: data.items.map((item) => ({
         id: item.id.videoId,
         title: item.snippet.title,
         thumbnails: item.snippet.thumbnails,
-        channel: item.snippet.channelTitle
-      }))
+        channel: item.snippet.channelTitle,
+      })),
     });
   } catch (err) {
-    console.error("YouTube API error:", err.message);
-    res.status(500).json({ status: "error", message: "Failed to search YouTube" });
+    console.error("Search error:", err.message);
+    res.status(500).json({ status: "error", message: "YouTube API error" });
   }
 });
 
-// Download handler using local yt-dlp binary
-function handleDownload(req, res, format) {
+// Download endpoint
+app.get("/api/download/mp4", (req, res) => {
   const videoId = req.query.id;
-  if (!videoId) return res.status(400).send("Missing ?id= parameter");
-
-  let filename, contentType, ytFormat;
-
-  if (format === "mp4") {
-    filename = `video_${videoId}.mp4`;
-    contentType = "video/mp4";
-    ytFormat = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best";
-  } else if (format === "mp3") {
-    filename = `audio_${videoId}.mp3`;
-    contentType = "audio/mpeg";
-    ytFormat = "bestaudio/best";
-  } else {
-    return res.status(400).send("Invalid format");
+  if (!videoId) {
+    return res.status(400).send("Missing video id (?id=...)");
   }
 
-  res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  // Set headers
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Content-Disposition", `attachment; filename="video_${videoId}.mp4"`);
 
-  // Absolute path to local yt-dlp binary
-  const ytDlpPath = path.join(__dirname, "yt-dlp");
-
-  const ytProcess = spawn(ytDlpPath, [
-    "-f", ytFormat,
+  // Modern yt-dlp arguments (2024–2025 compatible)
+  const ytProcess = spawn("yt-dlp", [
+    "-f", "best[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
     "--no-playlist",
-    "--embed-metadata",
-    "--embed-thumbnail",
-    "--audio-format", "mp3",
-    "--audio-quality", "0",
     "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     "--extractor-args", "youtube:player_client=android,web",
     "--no-warnings",
@@ -101,37 +86,59 @@ function handleDownload(req, res, format) {
     "-o", "-"
   ]);
 
+  // Pipe video stream directly to response
   ytProcess.stdout.pipe(res);
 
+  // Log errors / important messages
   ytProcess.stderr.on("data", (data) => {
     const msg = data.toString().trim();
-    if (msg) console.log("yt-dlp:", msg);
+    if (msg.includes("ERROR") || msg.includes("403") || msg.includes("429")) {
+      console.error(`yt-dlp error: ${msg}`);
+    } else if (msg) {
+      console.log(`yt-dlp: ${msg}`);
+    }
   });
 
+  // Handle process exit
   ytProcess.on("close", (code) => {
-    if (code !== 0 && !res.headersSent) {
+    if (code !== 0) {
+      console.warn(`yt-dlp exited with code ${code}`);
+    }
+    if (!res.headersSent) {
       res.status(500).send("Download failed");
     }
     res.end();
   });
 
+  // Clean up if client disconnects early
   req.on("close", () => {
-    if (!ytProcess.killed) ytProcess.kill();
+    if (!ytProcess.killed) {
+      ytProcess.kill();
+    }
   });
-}
+});
 
-// Video and Audio endpoints
-app.get("/api/download/mp4", (req, res) => handleDownload(req, res, "mp4"));
-app.get("/api/download/mp3", (req, res) => handleDownload(req, res, "mp3"));
-
-// 404 fallback
-app.use((req, res) => res.status(404).json({ error: "Endpoint not found" }));
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/`);
 });
 
-// Graceful shutdown
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
-process.on("SIGINT", () => process.exit(0));
+// Graceful shutdown (important on Render)
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received. Shutting down gracefully...");
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received. Shutting down...");
+  server.close(() => process.exit(0));
+});

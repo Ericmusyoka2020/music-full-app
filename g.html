@@ -1,182 +1,126 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube Downloader</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      max-width: 800px;
-      margin: auto;
-      background: #f9f9f9;
-    }
-
-    h1 {
-      text-align: center;
-      color: #333;
-    }
-
-    form {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 20px;
-    }
-
-    input[type="text"] {
-      width: 70%;
-      padding: 10px;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 5px 0 0 5px;
-      outline: none;
-    }
-
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      background: #4CAF50;
-      color: white;
-      cursor: pointer;
-      border-radius: 0 5px 5px 0;
-    }
-
-    button:hover {
-      background: #45a049;
-    }
-
-    .results {
-      margin-top: 20px;
-    }
-
-    .video {
-      display: flex;
-      margin-bottom: 15px;
-      background: #fff;
-      padding: 10px;
-      border-radius: 5px;
-      align-items: center;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-
-    .video img {
-      width: 120px;
-      height: 90px;
-      margin-right: 15px;
-      border-radius: 5px;
-    }
-
-    .video-info {
-      flex-grow: 1;
-    }
-
-    .video-info h3 {
-      margin: 0;
-      font-size: 16px;
-      color: #333;
-    }
-
-    .video-info p {
-      margin: 5px 0 0 0;
-      font-size: 14px;
-      color: #666;
-    }
-
-    .download-buttons button {
-      margin-left: 5px;
-      background: #2196F3;
-      border-radius: 5px;
-    }
-
-    .download-buttons button:hover {
-      background: #1976d2;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loader {
+            border-top-color: #ef4444;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
-<body>
-  <h1>YouTube Downloader</h1>
+<body class="bg-gray-900 text-white min-h-screen p-5">
 
-  <form id="searchForm">
-    <input type="text" id="query" placeholder="Search for videos..." required>
-    <button type="submit">Search</button>
-  </form>
+    <div class="max-w-6xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-red-500 mb-2">YouTube Downloader</h1>
+            <p class="text-gray-400">Enter a keyword to find and download videos</p>
+        </header>
 
-  <div class="results" id="results"></div>
+        <div class="flex gap-2 mb-10 max-w-2xl mx-auto">
+            <input 
+                type="text" 
+                id="searchInput"
+                placeholder="Search for a video..." 
+                class="flex-1 p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:border-red-500 text-white"
+            >
+            <button 
+                onclick="searchVideos()"
+                id="searchBtn"
+                class="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-lg font-bold transition"
+            >
+                Search
+            </button>
+        </div>
 
-  <script>
-    const backend = "https://music-full-app-2.onrender.com";
+        <div id="loading" class="hidden flex justify-center mb-10">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+        </div>
 
-    const form = document.getElementById("searchForm");
-    const resultsDiv = document.getElementById("results");
+        <div id="videoGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            </div>
+    </div>
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const query = document.getElementById("query").value.trim();
-      if (!query) return;
+    <script>
+        // Update this to your backend URL (e.g., https://your-app.onrender.com)
+        const API_BASE_URL = "http://localhost:5000";
 
-      resultsDiv.innerHTML = "<p>Loading...</p>";
+        async function searchVideos() {
+            const query = document.getElementById('searchInput').value;
+            const grid = document.getElementById('videoGrid');
+            const loader = document.getElementById('loading');
+            
+            if (!query) return alert("Please enter a search term");
 
-      try {
-        const res = await fetch(`${backend}/api/search?q=${encodeURIComponent(query)}`);
-        const data = await res.json();
+            // UI State: Loading
+            grid.innerHTML = "";
+            loader.classList.remove('hidden');
 
-        if (!data.data || data.data.length === 0) {
-          resultsDiv.innerHTML = "<p>No results found.</p>";
-          return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/search?q=${encodeURIComponent(query)}`);
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    displayVideos(result.data);
+                } else {
+                    alert("Error fetching videos");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Could not connect to backend.");
+            } finally {
+                loader.classList.add('hidden');
+            }
         }
 
-        resultsDiv.innerHTML = "";
-        data.data.forEach(video => {
-          const videoDiv = document.createElement("div");
-          videoDiv.className = "video";
+        function displayVideos(videos) {
+            const grid = document.getElementById('videoGrid');
+            
+            videos.forEach(video => {
+                const card = document.createElement('div');
+                card.className = "bg-gray-800 rounded-xl overflow-hidden shadow-lg border border-gray-700";
+                
+                card.innerHTML = `
+                    <img src="${video.thumbnails.high.url}" class="w-full h-48 object-cover" alt="thumbnail">
+                    <div class="p-4">
+                        <h3 class="font-bold text-lg mb-1 line-clamp-2">${video.title}</h3>
+                        <p class="text-gray-400 text-sm mb-4">${video.channel}</p>
+                        <div class="flex gap-2">
+                            <button 
+                                onclick="download('${video.id}', 'mp4')"
+                                class="flex-1 bg-blue-600 hover:bg-blue-700 py-2 rounded font-semibold text-sm transition"
+                            >
+                                MP4 Video
+                            </button>
+                            <button 
+                                onclick="download('${video.id}', 'mp3')"
+                                class="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded font-semibold text-sm transition"
+                            >
+                                MP3 Audio
+                            </button>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
 
-          const thumb = document.createElement("img");
-          thumb.src = video.thumbnails?.default?.url || "";
-          thumb.alt = video.title;
+        function download(id, format) {
+            // Directly navigate to the API endpoint to trigger the browser download dialog
+            window.location.href = `${API_BASE_URL}/api/download/${format}?id=${id}`;
+        }
 
-          const infoDiv = document.createElement("div");
-          infoDiv.className = "video-info";
-
-          const title = document.createElement("h3");
-          title.textContent = video.title;
-
-          const channel = document.createElement("p");
-          channel.textContent = "Channel: " + video.channel;
-
-          infoDiv.appendChild(title);
-          infoDiv.appendChild(channel);
-
-          const downloadDiv = document.createElement("div");
-          downloadDiv.className = "download-buttons";
-
-          const mp4Btn = document.createElement("button");
-          mp4Btn.textContent = "Download MP4";
-          mp4Btn.onclick = () => {
-            window.open(`${backend}/api/download/mp4?id=${video.id}`, "_blank");
-          };
-
-          const mp3Btn = document.createElement("button");
-          mp3Btn.textContent = "Download MP3";
-          mp3Btn.onclick = () => {
-            window.open(`${backend}/api/download/mp3?id=${video.id}`, "_blank");
-          };
-
-          downloadDiv.appendChild(mp4Btn);
-          downloadDiv.appendChild(mp3Btn);
-
-          videoDiv.appendChild(thumb);
-          videoDiv.appendChild(infoDiv);
-          videoDiv.appendChild(downloadDiv);
-
-          resultsDiv.appendChild(videoDiv);
+        // Allow "Enter" key to search
+        document.getElementById("searchInput").addEventListener("keypress", (e) => {
+            if (e.key === "Enter") searchVideos();
         });
-      } catch (err) {
-        console.error(err);
-        resultsDiv.innerHTML = "<p>Error fetching results.</p>";
-      }
-    });
-  </script>
+    </script>
 </body>
 </html>
